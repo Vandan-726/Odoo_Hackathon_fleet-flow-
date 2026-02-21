@@ -1,4 +1,5 @@
 'use client';
+
 export default function Modal({ title, onClose, children }) {
     return (
         <div className="modal-overlay" onClick={onClose}>

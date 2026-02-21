@@ -4,238 +4,212 @@ import { useState, useEffect, useRef } from 'react';
 export default function AnalyticsPage() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const chartRefs = useRef({});
-    const chartInstances = useRef({});
+    const fuelRef = useRef(null);
+    const revenueRef = useRef(null);
+    const costRef = useRef(null);
+    const typeRef = useRef(null);
+    const charts = useRef([]);
 
     useEffect(() => {
         fetch('/api/analytics').then(r => r.json()).then(d => { setData(d); setLoading(false); });
     }, []);
 
     useEffect(() => {
-        if (!data) return;
-        let Chart;
-        import('chart.js/auto').then(mod => {
-            Chart = mod.default;
-            renderCharts(Chart);
-        });
-        return () => {
-            Object.values(chartInstances.current).forEach(c => c?.destroy());
-        };
-    }, [data]);
+        if (!data || loading) return;
 
-    const renderCharts = (Chart) => {
-        // Destroy existing
-        Object.values(chartInstances.current).forEach(c => c?.destroy());
+        // Dynamic import Chart.js only on client
+        import('chart.js/auto').then(({ default: Chart }) => {
+            // Destroy old charts
+            charts.current.forEach(c => c.destroy());
+            charts.current = [];
 
-        const baseOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { labels: { font: { family: 'Inter' }, color: '#475569' } } },
-            scales: {
-                x: { ticks: { color: '#94a3b8', font: { family: 'Inter' } }, grid: { color: '#f1f5f9' } },
-                y: { ticks: { color: '#94a3b8', font: { family: 'Inter' } }, grid: { color: '#f1f5f9' } }
+            const kpis = data.kpis || {};
+            const costBreakdown = data.costBreakdown || [];
+
+            // Fuel Efficiency Bar Chart
+            if (fuelRef.current) {
+                const labels = (data.fuelEfficiency || []).map(v => v.vehicle_name);
+                const values = (data.fuelEfficiency || []).map(v => v.cost_per_km || 0);
+                charts.current.push(new Chart(fuelRef.current, {
+                    type: 'bar',
+                    data: { labels, datasets: [{ label: 'Cost / km (₹)', data: values, backgroundColor: '#714b67', borderRadius: 4 }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+                }));
             }
-        };
 
-        // Fuel Efficiency Chart
-        if (chartRefs.current.fuel && data.fuelEfficiency?.length) {
-            chartInstances.current.fuel = new Chart(chartRefs.current.fuel, {
-                type: 'bar',
-                data: {
-                    labels: data.fuelEfficiency.map(v => v.name),
-                    datasets: [{
-                        label: 'km/L',
-                        data: data.fuelEfficiency.map(v => parseFloat(v.km_per_liter)),
-                        backgroundColor: 'rgba(168, 213, 213, 0.6)',
-                        borderColor: '#a8d5d5',
-                        borderWidth: 2,
-                        borderRadius: 6,
-                    }]
-                },
-                options: { ...baseOptions, plugins: { ...baseOptions.plugins, title: { display: false } } }
-            });
-        }
+            // Revenue vs Expenses Line Chart
+            if (revenueRef.current) {
+                const trends = data.monthlyTrends || [];
+                const labels = trends.map(t => t.month);
+                charts.current.push(new Chart(revenueRef.current, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            { label: 'Revenue', data: trends.map(t => t.revenue || 0), borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,.08)', fill: true, tension: .3 },
+                            { label: 'Expenses', data: trends.map(t => t.expenses || 0), borderColor: '#dc2626', backgroundColor: 'rgba(220,38,38,.06)', fill: true, tension: .3 },
+                        ],
+                    },
+                    options: { responsive: true, maintainAspectRatio: false },
+                }));
+            }
 
-        // Cost Breakdown Chart
-        if (chartRefs.current.cost && data.costBreakdown?.length) {
-            chartInstances.current.cost = new Chart(chartRefs.current.cost, {
-                type: 'bar',
-                data: {
-                    labels: data.costBreakdown.map(v => v.name),
-                    datasets: [
-                        { label: 'Fuel', data: data.costBreakdown.map(v => v.fuel_cost), backgroundColor: 'rgba(168, 213, 213, 0.7)', borderRadius: 4 },
-                        { label: 'Maintenance', data: data.costBreakdown.map(v => v.maintenance_cost), backgroundColor: 'rgba(212, 165, 168, 0.7)', borderRadius: 4 },
-                        { label: 'Other', data: data.costBreakdown.map(v => v.other_cost), backgroundColor: 'rgba(148, 163, 184, 0.4)', borderRadius: 4 }
-                    ]
-                },
-                options: { ...baseOptions, scales: { ...baseOptions.scales, x: { ...baseOptions.scales.x, stacked: true }, y: { ...baseOptions.scales.y, stacked: true } } }
-            });
-        }
+            // Cost breakdown Doughnut
+            if (costRef.current) {
+                const top5 = costBreakdown.slice(0, 5);
+                charts.current.push(new Chart(costRef.current, {
+                    type: 'doughnut',
+                    data: {
+                        labels: top5.map(v => v.vehicle_name),
+                        datasets: [{ data: top5.map(v => v.total_cost || 0), backgroundColor: ['#714b67', '#8a6580', '#b0a8ad', '#c4a3a6', '#ddd'] }],
+                    },
+                    options: { responsive: true, maintainAspectRatio: false },
+                }));
+            }
 
-        // ROI Chart
-        if (chartRefs.current.roi && data.costBreakdown?.length) {
-            const roiData = data.costBreakdown.filter(v => parseFloat(v.roi) !== 0);
-            chartInstances.current.roi = new Chart(chartRefs.current.roi, {
-                type: 'doughnut',
-                data: {
-                    labels: roiData.map(v => v.name),
-                    datasets: [{
-                        data: roiData.map(v => Math.abs(parseFloat(v.roi))),
-                        backgroundColor: ['#a8d5d5', '#d4a5a8', '#8b6f71', '#EAF4F4', '#F1E3E4', '#94a3b8', '#6366f1', '#a855f7'],
-                        borderWidth: 2,
-                        borderColor: '#fff',
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'bottom', labels: { font: { family: 'Inter' }, color: '#475569', padding: 16 } } }
-                }
-            });
-        }
+            // Fleet type Pie
+            if (typeRef.current) {
+                const vehicleTypes = data.vehicleTypes || { Truck: 0, Van: 0, Bike: 0 };
+                charts.current.push(new Chart(typeRef.current, {
+                    type: 'pie',
+                    data: {
+                        labels: Object.keys(vehicleTypes),
+                        datasets: [{ data: Object.values(vehicleTypes), backgroundColor: ['#714b67', '#b0a8ad', '#c4a3a6'] }],
+                    },
+                    options: { responsive: true, maintainAspectRatio: false },
+                }));
+            }
+        });
 
-        // Monthly Trend
-        if (chartRefs.current.monthly && data.monthlyExpenses?.length) {
-            chartInstances.current.monthly = new Chart(chartRefs.current.monthly, {
-                type: 'line',
-                data: {
-                    labels: data.monthlyExpenses.map(m => m.month),
-                    datasets: [{
-                        label: 'Total Expenses',
-                        data: data.monthlyExpenses.map(m => m.total),
-                        borderColor: '#8b6f71',
-                        backgroundColor: 'rgba(241, 227, 228, 0.3)',
-                        fill: true,
-                        tension: 0.4,
-                        pointBackgroundColor: '#8b6f71',
-                        pointRadius: 5,
-                    }]
-                },
-                options: baseOptions
-            });
-        }
-    };
+        return () => { charts.current.forEach(c => c.destroy()); };
+    }, [data, loading]);
 
     const exportCSV = () => {
         if (!data) return;
-        let csv = 'Vehicle,Fuel Cost,Maintenance Cost,Other Cost,Total Cost,Revenue,ROI %\n';
-        data.costBreakdown.forEach(v => {
-            csv += `${v.name},${v.fuel_cost},${v.maintenance_cost},${v.other_cost},${v.total_cost},${v.total_revenue},${v.roi}\n`;
+        const rows = [['Vehicle', 'Total Cost', 'Fuel', 'Maintenance', 'Revenue', 'ROI %']];
+        (data.costBreakdown || []).forEach(v => {
+            rows.push([v.vehicle_name, v.total_cost, v.fuel_cost, v.maintenance_cost, v.revenue, v.roi]);
         });
+        const csv = rows.map(r => r.join(',')).join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'fleetflow-report.csv'; a.click();
-        URL.revokeObjectURL(url);
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'fleetflow_analytics.csv'; a.click();
     };
 
     const exportPDF = async () => {
         const { default: jsPDF } = await import('jspdf');
         await import('jspdf-autotable');
         const doc = new jsPDF();
-        doc.setFontSize(18);
-        doc.text('FleetFlow — Financial Report', 14, 22);
+        doc.setFontSize(16);
+        doc.text('FleetFlow Analytics Report', 14, 20);
         doc.setFontSize(10);
-        doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 30);
+        doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 28);
 
-        const rows = data.costBreakdown.map(v => [v.name, `₹${v.fuel_cost}`, `₹${v.maintenance_cost}`, `₹${v.other_cost}`, `₹${v.total_cost}`, `₹${v.total_revenue}`, `${v.roi}%`]);
+        const kpis = data?.kpis || {};
         doc.autoTable({
-            head: [['Vehicle', 'Fuel', 'Maintenance', 'Other', 'Total Cost', 'Revenue', 'ROI']],
-            body: rows,
-            startY: 38,
-            styles: { fontSize: 8 },
-            headStyles: { fillColor: [139, 111, 113] },
+            startY: 35,
+            head: [['Metric', 'Value']],
+            body: [
+                ['Total Vehicles', kpis.totalVehicles],
+                ['Active Fleet', kpis.activeFleet],
+                ['Total Revenue', `₹${(kpis.totalRevenue || 0).toLocaleString()}`],
+                ['Total Expenses', `₹${((kpis.totalExpenses || 0) + (kpis.totalMaintCost || 0)).toLocaleString()}`],
+                ['Fleet ROI', `${data?.overallROI || 0}%`],
+            ],
         });
-        doc.save('fleetflow-report.pdf');
+
+        doc.autoTable({
+            startY: doc.lastAutoTable.finalY + 12,
+            head: [['Vehicle', 'Total Cost', 'Fuel', 'Maintenance', 'Revenue', 'ROI %']],
+            body: (data?.costBreakdown || []).map(v => [v.vehicle_name, `₹${v.total_cost}`, `₹${v.fuel_cost}`, `₹${v.maintenance_cost}`, `₹${v.revenue}`, `${v.roi}%`]),
+        });
+
+        doc.save('fleetflow_analytics.pdf');
     };
 
-    if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading analytics...</div>;
+    if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-light)' }}>Loading analytics...</div>;
 
     const kpis = data?.kpis || {};
 
     return (
         <div className="fade-in">
             <div className="page-header">
-                <h1>📈 Analytics & Reports</h1>
+                <h1>Analytics & Reports</h1>
                 <div className="page-header-actions">
-                    <button className="btn btn-secondary" onClick={exportCSV}>📥 Export CSV</button>
-                    <button className="btn btn-primary" onClick={exportPDF}>📄 Export PDF</button>
+                    <button className="btn btn-secondary" onClick={exportCSV}>Export CSV</button>
+                    <button className="btn btn-primary" onClick={exportPDF}>Export PDF</button>
                 </div>
             </div>
 
-            <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <div className="kpi-grid">
                 <div className="kpi-card">
-                    <div className="kpi-card-icon green">💵</div>
+                    <div className="kpi-card-icon green"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></svg></div>
                     <div className="kpi-label">Total Revenue</div>
                     <div className="kpi-value">₹{(kpis.totalRevenue || 0).toLocaleString()}</div>
                 </div>
                 <div className="kpi-card">
-                    <div className="kpi-card-icon yellow">⛽</div>
-                    <div className="kpi-label">Fuel Expenses</div>
-                    <div className="kpi-value">₹{(kpis.totalExpenses || 0).toLocaleString()}</div>
+                    <div className="kpi-card-icon red"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg></div>
+                    <div className="kpi-label">Total Expenses</div>
+                    <div className="kpi-value">₹{((kpis.totalExpenses || 0) + (kpis.totalMaintCost || 0)).toLocaleString()}</div>
                 </div>
                 <div className="kpi-card">
-                    <div className="kpi-card-icon red">🔧</div>
-                    <div className="kpi-label">Maintenance Cost</div>
-                    <div className="kpi-value">₹{(kpis.totalMaintCost || 0).toLocaleString()}</div>
+                    <div className="kpi-card-icon blue"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg></div>
+                    <div className="kpi-label">Fleet ROI</div>
+                    <div className="kpi-value">{data?.overallROI || 0}%</div>
                 </div>
                 <div className="kpi-card">
-                    <div className="kpi-card-icon blue">📊</div>
-                    <div className="kpi-label">Net Profit</div>
-                    <div className="kpi-value" style={{ color: (kpis.totalRevenue - kpis.totalExpenses - kpis.totalMaintCost) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        ₹{((kpis.totalRevenue || 0) - (kpis.totalExpenses || 0) - (kpis.totalMaintCost || 0)).toLocaleString()}
-                    </div>
+                    <div className="kpi-card-icon purple"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 17h14V9l-2-4H7L5 9v8z" /><circle cx="7.5" cy="17" r="1.5" /><circle cx="16.5" cy="17" r="1.5" /><path d="M5 9h14" /></svg></div>
+                    <div className="kpi-label">Total Vehicles</div>
+                    <div className="kpi-value">{kpis.totalVehicles || 0}</div>
                 </div>
             </div>
 
+            {/* Charts — 2 side by side matching wireframe */}
             <div className="chart-grid">
                 <div className="chart-card">
-                    <h3>⛽ Fuel Efficiency (km/L)</h3>
-                    <div style={{ height: 280 }}><canvas ref={el => chartRefs.current.fuel = el}></canvas></div>
+                    <h3>Fuel Cost per KM</h3>
+                    <div style={{ height: 250 }}><canvas ref={fuelRef}></canvas></div>
                 </div>
                 <div className="chart-card">
-                    <h3>📊 Cost Breakdown by Vehicle</h3>
-                    <div style={{ height: 280 }}><canvas ref={el => chartRefs.current.cost = el}></canvas></div>
+                    <h3>Revenue vs Expenses</h3>
+                    <div style={{ height: 250 }}><canvas ref={revenueRef}></canvas></div>
                 </div>
             </div>
-
             <div className="chart-grid">
                 <div className="chart-card">
-                    <h3>🍩 Vehicle ROI Distribution</h3>
-                    <div style={{ height: 280 }}><canvas ref={el => chartRefs.current.roi = el}></canvas></div>
+                    <h3>Cost Breakdown by Vehicle</h3>
+                    <div style={{ height: 250 }}><canvas ref={costRef}></canvas></div>
                 </div>
                 <div className="chart-card">
-                    <h3>📈 Monthly Expense Trend</h3>
-                    <div style={{ height: 280 }}><canvas ref={el => chartRefs.current.monthly = el}></canvas></div>
+                    <h3>Fleet Composition</h3>
+                    <div style={{ height: 250 }}><canvas ref={typeRef}></canvas></div>
                 </div>
             </div>
 
-            <div className="table-container">
+            {/* Financial Summary Table */}
+            <div className="table-container" style={{ marginTop: 20 }}>
                 <div className="table-toolbar">
-                    <h3>📋 Vehicle Financial Summary</h3>
+                    <h3>Financial Summary by Vehicle</h3>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th>Vehicle</th>
-                            <th>Fuel Cost</th>
-                            <th>Maintenance</th>
-                            <th>Other</th>
                             <th>Total Cost</th>
+                            <th>Fuel</th>
+                            <th>Maintenance</th>
                             <th>Revenue</th>
                             <th>ROI %</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {(data?.costBreakdown || []).map(v => (
-                            <tr key={v.id}>
-                                <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{v.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({v.license_plate})</span></td>
-                                <td>₹{v.fuel_cost.toLocaleString()}</td>
-                                <td>₹{v.maintenance_cost.toLocaleString()}</td>
-                                <td>₹{v.other_cost.toLocaleString()}</td>
-                                <td style={{ fontWeight: 600 }}>₹{v.total_cost.toLocaleString()}</td>
-                                <td style={{ color: 'var(--success)' }}>₹{v.total_revenue.toLocaleString()}</td>
-                                <td style={{ fontWeight: 700, color: parseFloat(v.roi) >= 0 ? 'var(--success)' : 'var(--danger)' }}>{v.roi}%</td>
+                        {(data?.costBreakdown || []).map((v, i) => (
+                            <tr key={i}>
+                                <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{v.vehicle_name}</td>
+                                <td>₹{(v.total_cost || 0).toLocaleString()}</td>
+                                <td>₹{(v.fuel_cost || 0).toLocaleString()}</td>
+                                <td>₹{(v.maintenance_cost || 0).toLocaleString()}</td>
+                                <td style={{ color: 'var(--green)', fontWeight: 600 }}>₹{(v.revenue || 0).toLocaleString()}</td>
+                                <td style={{ fontWeight: 600, color: v.roi > 0 ? 'var(--green)' : 'var(--red)' }}>{v.roi}%</td>
                             </tr>
                         ))}
                     </tbody>

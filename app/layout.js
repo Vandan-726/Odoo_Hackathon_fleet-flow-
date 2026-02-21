@@ -1,4 +1,5 @@
 import './globals.css';
+import AnimatedBackground from '@/components/AnimatedBackground';
 
 export const metadata = {
     title: 'FleetFlow — Fleet & Logistics Management',
@@ -8,7 +9,10 @@ export const metadata = {
 export default function RootLayout({ children }) {
     return (
         <html lang="en">
-            <body>{children}</body>
+            <body>
+                <AnimatedBackground />
+                {children}
+            </body>
         </html>
     );
 }

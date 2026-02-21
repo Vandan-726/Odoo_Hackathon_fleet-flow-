@@ -8,14 +8,14 @@ export default function MaintenancePage() {
     const [vehicles, setVehicles] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [error, setError] = useState('');
-    const [form, setForm] = useState({ vehicle_id: '', service_type: '', description: '', cost: '', service_date: '' });
+    const [form, setForm] = useState({ vehicle_id: '', service_type: 'Oil Change', description: '', cost: '', service_date: '' });
 
     const fetchAll = async () => {
-        const [l, v] = await Promise.all([
+        const [m, v] = await Promise.all([
             fetch('/api/maintenance').then(r => r.json()),
             fetch('/api/vehicles').then(r => r.json()),
         ]);
-        setLogs(l);
+        setLogs(m);
         setVehicles(v);
     };
 
@@ -27,15 +27,16 @@ export default function MaintenancePage() {
         const res = await fetch('/api/maintenance', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...form, vehicle_id: Number(form.vehicle_id), cost: Number(form.cost) }),
+            body: JSON.stringify({ ...form, cost: Number(form.cost) }),
         });
         if (!res.ok) { const d = await res.json(); setError(d.error); return; }
         setShowModal(false);
+        setForm({ vehicle_id: '', service_type: 'Oil Change', description: '', cost: '', service_date: '' });
         fetchAll();
     };
 
-    const completeMaintenance = async (log) => {
-        await fetch(`/api/maintenance/${log.id}`, {
+    const completeMaintenance = async (id) => {
+        await fetch(`/api/maintenance/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'Completed' }),
@@ -43,19 +44,38 @@ export default function MaintenancePage() {
         fetchAll();
     };
 
-    const serviceTypes = ['Oil Change', 'Tire Rotation', 'Brake Inspection', 'Engine Overhaul', 'Battery Replacement', 'Transmission Service', 'AC Repair', 'General Inspection', 'Other'];
+    const inShopCount = vehicles.filter(v => v.status === 'In Shop').length;
+    const totalCost = logs.reduce((s, l) => s + (l.cost || 0), 0);
 
     return (
         <div className="fade-in">
             <div className="page-header">
-                <h1>🔧 Maintenance & Service Logs</h1>
-                <button className="btn btn-primary" onClick={() => { setError(''); setForm({ vehicle_id: '', service_type: '', description: '', cost: '', service_date: new Date().toISOString().split('T')[0] }); setShowModal(true); }}>
-                    ➕ Add Service Log
-                </button>
+                <h1>Maintenance & Service Logs</h1>
+                <div className="page-header-actions">
+                    <button className="btn btn-primary" onClick={() => { setError(''); setShowModal(true); }}>+ Log Service</button>
+                </div>
             </div>
 
-            <div style={{ background: 'var(--warning-bg)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: 'var(--radius-sm)', padding: '12px 16px', marginBottom: 20, fontSize: '0.85rem', color: 'var(--warning)' }}>
-                ⚡ Adding a service log automatically sets the vehicle status to "In Shop" — it will be hidden from the Trip Dispatcher.
+            {inShopCount > 0 && (
+                <div className="alert-banner warning">{inShopCount} vehicle(s) currently in shop for maintenance</div>
+            )}
+
+            <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                <div className="kpi-card">
+                    <div className="kpi-card-icon blue"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" /></svg></div>
+                    <div className="kpi-label">Total Services</div>
+                    <div className="kpi-value">{logs.length}</div>
+                </div>
+                <div className="kpi-card">
+                    <div className="kpi-card-icon red"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></svg></div>
+                    <div className="kpi-label">Total Maintenance Cost</div>
+                    <div className="kpi-value">₹{totalCost.toLocaleString()}</div>
+                </div>
+                <div className="kpi-card">
+                    <div className="kpi-card-icon yellow"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" /></svg></div>
+                    <div className="kpi-label">Vehicles In Shop</div>
+                    <div className="kpi-value">{inShopCount}</div>
+                </div>
             </div>
 
             <div className="table-container">
@@ -75,62 +95,65 @@ export default function MaintenancePage() {
                     <tbody>
                         {logs.map(log => (
                             <tr key={log.id}>
-                                <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>SVC-{String(log.id).padStart(3, '0')}</td>
-                                <td>{log.vehicle_name} <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({log.license_plate})</span></td>
+                                <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>SVC-{String(log.id).padStart(3, '0')}</td>
+                                <td>{log.vehicle_name} <span style={{ color: 'var(--text-light)', fontSize: '.78rem' }}>({log.license_plate})</span></td>
                                 <td>{log.service_type}</td>
-                                <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.description}</td>
+                                <td>{log.description || '—'}</td>
                                 <td>₹{(log.cost || 0).toLocaleString()}</td>
                                 <td>{log.service_date}</td>
                                 <td><StatusPill status={log.status} /></td>
                                 <td>
-                                    {log.status !== 'Completed' && (
-                                        <button className="btn btn-sm btn-success" onClick={() => completeMaintenance(log)}>✅ Complete</button>
+                                    {(log.status === 'Scheduled' || log.status === 'In Progress') && (
+                                        <button className="btn btn-sm btn-success" onClick={() => completeMaintenance(log.id)}>Complete</button>
                                     )}
                                 </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
-                {logs.length === 0 && <div className="table-empty">No maintenance logs</div>}
+                {logs.length === 0 && <div className="table-empty">No maintenance logs yet</div>}
             </div>
 
             {showModal && (
-                <Modal title="Add Service Log" onClose={() => setShowModal(false)}>
-                    {error && <div className="login-error" style={{ marginBottom: 16 }}>{error}</div>}
+                <Modal title="Log New Service" onClose={() => setShowModal(false)}>
+                    {error && <div className="login-error" style={{ marginBottom: 14 }}>{error}</div>}
                     <form onSubmit={handleSubmit}>
-                        <div className="form-group">
-                            <label>Vehicle</label>
-                            <select className="form-select" value={form.vehicle_id} onChange={e => setForm({ ...form, vehicle_id: e.target.value })} required>
-                                <option value="">Select vehicle...</option>
-                                {vehicles.filter(v => v.status !== 'Retired').map(v => (
-                                    <option key={v.id} value={v.id}>{v.name} — {v.license_plate} ({v.status})</option>
-                                ))}
-                            </select>
-                        </div>
                         <div className="form-row">
                             <div className="form-group">
-                                <label>Service Type</label>
-                                <select className="form-select" value={form.service_type} onChange={e => setForm({ ...form, service_type: e.target.value })} required>
-                                    <option value="">Select type...</option>
-                                    {serviceTypes.map(s => <option key={s} value={s}>{s}</option>)}
+                                <label>Vehicle</label>
+                                <select className="form-select" value={form.vehicle_id} onChange={e => setForm({ ...form, vehicle_id: e.target.value })} required>
+                                    <option value="">Select vehicle...</option>
+                                    {vehicles.map(v => (
+                                        <option key={v.id} value={v.id}>{v.name} — {v.license_plate}</option>
+                                    ))}
                                 </select>
                             </div>
+                            <div className="form-group">
+                                <label>Service Type</label>
+                                <select className="form-select" value={form.service_type} onChange={e => setForm({ ...form, service_type: e.target.value })}>
+                                    {['Oil Change', 'Tire Rotation', 'Brake Inspection', 'Engine Overhaul', 'Battery Replacement', 'Transmission Service', 'AC Repair', 'General Inspection', 'Other'].map(t => (
+                                        <option key={t} value={t}>{t}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="form-row">
                             <div className="form-group">
                                 <label>Cost (₹)</label>
                                 <input className="form-input" type="number" value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} placeholder="2500" />
                             </div>
+                            <div className="form-group">
+                                <label>Service Date</label>
+                                <input className="form-input" type="date" value={form.service_date} onChange={e => setForm({ ...form, service_date: e.target.value })} required />
+                            </div>
                         </div>
                         <div className="form-group">
-                            <label>Service Date</label>
-                            <input className="form-input" type="date" value={form.service_date} onChange={e => setForm({ ...form, service_date: e.target.value })} required />
+                            <label>Description (optional)</label>
+                            <textarea className="form-textarea" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Service details..." />
                         </div>
-                        <div className="form-group">
-                            <label>Description</label>
-                            <textarea className="form-textarea" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Details about the service..." />
-                        </div>
-                        <div className="modal-footer" style={{ padding: '16px 0 0', border: 'none' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 8 }}>
                             <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-                            <button type="submit" className="btn btn-primary">Add Log</button>
+                            <button type="submit" className="btn btn-primary">Log Service</button>
                         </div>
                     </form>
                 </Modal>

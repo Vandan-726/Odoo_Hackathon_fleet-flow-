@@ -1,5 +1,6 @@
 'use client';
+
 export default function StatusPill({ status }) {
-    const cls = status?.toLowerCase().replace(/\s+/g, '-') || 'draft';
-    return <span className={`status-pill ${cls}`}>{status}</span>;
+    const className = status?.toLowerCase().replace(/\s+/g, '-') || '';
+    return <span className={`status-pill ${className}`}>{status}</span>;
 }
