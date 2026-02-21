@@ -1,6 +1,7 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
 const ROLES = [
     { value: 'manager', label: 'Fleet Manager', desc: 'Full system access — vehicles, trips, drivers, analytics' },
@@ -74,8 +75,17 @@ function CheckIcon({ size = 16 }) {
     );
 }
 
-export default function AuthPage() {
+function MailIcon({ size = 16 }) {
+    return (
+        <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2" /><path d="M22 4l-10 8L2 4" />
+        </svg>
+    );
+}
+
+function AuthPageInner() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [mode, setMode] = useState('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -85,6 +95,24 @@ export default function AuthPage() {
     const [success, setSuccess] = useState('');
     const [loading, setLoading] = useState(false);
     const [logoMorph, setLogoMorph] = useState(false);
+
+    useEffect(() => {
+        if (searchParams.get('verified') === 'true') {
+            setSuccess('Email verified successfully! You can now sign in.');
+            setMode('login');
+        }
+        const verifyError = searchParams.get('verify_error');
+        if (verifyError) {
+            const errorMessages = {
+                missing_token: 'Invalid verification link.',
+                invalid_token: 'This verification link is invalid or has already been used.',
+                expired_token: 'This verification link has expired. Please register again.',
+                server_error: 'Something went wrong during verification. Please try again.',
+            };
+            setError(errorMessages[verifyError] || 'Verification failed.');
+            setMode('login');
+        }
+    }, [searchParams]);
 
     const handleRoleSelect = (r) => {
         setRole(r);
@@ -119,9 +147,9 @@ export default function AuthPage() {
                 });
                 const data = await res.json();
                 if (!res.ok) { setError(data.error); setLoading(false); return; }
-                // Don't auto-login — switch to login tab with success message
+                // Show check-your-email message
                 setMode('login');
-                setSuccess('Account created successfully! Please sign in.');
+                setSuccess(data.message || 'Please check your email to verify your account.');
                 setName('');
                 setPassword('');
                 setRole('');
@@ -179,18 +207,24 @@ export default function AuthPage() {
 
                 {success && (
                     <div style={{
-                        background: 'rgba(22, 163, 74, 0.08)',
-                        color: '#16a34a',
-                        padding: '10px 14px',
-                        borderRadius: '8px',
+                        background: success.includes('check your email') || success.includes('Check your') || success.includes('verification')
+                            ? 'rgba(113, 75, 103, 0.08)' : 'rgba(22, 163, 74, 0.08)',
+                        color: success.includes('check your email') || success.includes('Check your') || success.includes('verification')
+                            ? '#714b67' : '#16a34a',
+                        padding: '14px 16px',
+                        borderRadius: '10px',
                         fontSize: '.92rem',
                         marginBottom: '14px',
-                        border: '1px solid rgba(22, 163, 74, 0.15)',
+                        border: success.includes('check your email') || success.includes('Check your') || success.includes('verification')
+                            ? '1px solid rgba(113, 75, 103, 0.2)' : '1px solid rgba(22, 163, 74, 0.15)',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '8px',
+                        gap: '10px',
+                        lineHeight: '1.5',
                     }}>
-                        <CheckIcon size={16} /> {success}
+                        {success.includes('check your email') || success.includes('Check your') || success.includes('verification')
+                            ? <MailIcon size={20} /> : <CheckIcon size={16} />}
+                        {success}
                     </div>
                 )}
 
@@ -273,5 +307,13 @@ export default function AuthPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function AuthPage() {
+    return (
+        <Suspense fallback={<div className="login-page"><div className="login-card"><p>Loading...</p></div></div>}>
+            <AuthPageInner />
+        </Suspense>
     );
 }

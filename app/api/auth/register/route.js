@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 const { getDb } = require('@/lib/db');
-const { createToken, hashPassword } = require('@/lib/auth');
+const { hashPassword } = require('@/lib/auth');
 const { isValidEmail, isNonEmptyString } = require('@/lib/validate');
+const { sendVerificationEmail } = require('@/lib/mailer');
+const crypto = require('crypto');
 
 const VALID_ROLES = ['manager', 'dispatcher', 'safety_officer', 'analyst'];
 
@@ -27,25 +29,66 @@ export async function POST(request) {
 
         const db = await getDb();
 
-        const existing = await db.query('SELECT id FROM users WHERE email = $1', [email.trim().toLowerCase()]);
+        const existing = await db.query('SELECT id, email_verified FROM users WHERE email = $1', [email.trim().toLowerCase()]);
         if (existing.rows.length > 0) {
+            // If user exists but hasn't verified, resend verification email
+            if (!existing.rows[0].email_verified) {
+                const token = crypto.randomBytes(32).toString('hex');
+                const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+                // Delete old tokens and create new one
+                await db.query('DELETE FROM verification_tokens WHERE user_id = $1', [existing.rows[0].id]);
+                await db.query(
+                    'INSERT INTO verification_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+                    [existing.rows[0].id, token, expiresAt]
+                );
+
+                try {
+                    await sendVerificationEmail(email.trim().toLowerCase(), token);
+                } catch (mailErr) {
+                    console.error('Failed to resend verification email:', mailErr);
+                    return NextResponse.json({ error: 'Failed to send verification email. Please try again.' }, { status: 500 });
+                }
+
+                return NextResponse.json({
+                    success: true,
+                    needsVerification: true,
+                    message: 'A verification email has been resent. Please check your inbox.'
+                }, { status: 200 });
+            }
             return NextResponse.json({ error: 'An account with this email already exists' }, { status: 409 });
         }
 
         const password_hash = hashPassword(password);
         const result = await db.query(
-            'INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4) RETURNING id',
+            'INSERT INTO users (email, password_hash, name, role, email_verified) VALUES ($1, $2, $3, $4, false) RETURNING id',
             [email.trim().toLowerCase(), password_hash, name.trim(), role]
         );
 
-        const user = {
-            id: result.rows[0].id,
-            name: name.trim(),
-            email: email.trim().toLowerCase(),
-            role
-        };
+        // Generate verification token
+        const token = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-        return NextResponse.json({ success: true, user }, { status: 201 });
+        await db.query(
+            'INSERT INTO verification_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+            [result.rows[0].id, token, expiresAt]
+        );
+
+        // Send verification email
+        try {
+            await sendVerificationEmail(email.trim().toLowerCase(), token);
+        } catch (mailErr) {
+            console.error('Failed to send verification email:', mailErr);
+            // Clean up user if email fails
+            await db.query('DELETE FROM users WHERE id = $1', [result.rows[0].id]);
+            return NextResponse.json({ error: 'Failed to send verification email. Please check your email address and try again.' }, { status: 500 });
+        }
+
+        return NextResponse.json({
+            success: true,
+            needsVerification: true,
+            message: 'Account created! Please check your email to verify your account.'
+        }, { status: 201 });
     } catch (err) {
         console.error('Registration error:', err);
         return NextResponse.json({ error: 'Server error' }, { status: 500 });

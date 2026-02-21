@@ -17,6 +17,14 @@ export async function POST(request) {
             return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
         }
 
+        // Check if email is verified
+        if (!user.email_verified) {
+            return NextResponse.json({
+                error: 'Please verify your email before signing in. Check your inbox for the verification link.',
+                needsVerification: true
+            }, { status: 403 });
+        }
+
         const token = createToken(user);
         return NextResponse.json({
             token,
